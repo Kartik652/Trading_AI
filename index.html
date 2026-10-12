@@ -1,0 +1,644 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Trading AI Analyzer</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+
+<style>
+* {
+box-sizing: border-box;
+}
+
+body {
+margin: 0;
+font-family: Arial, sans-serif;
+background: #0b0f19;
+color: white;
+min-height: 100vh;
+}
+
+.container {
+width: 92%;
+max-width: 900px;
+margin: auto;
+padding: 30px 0 50px;
+}
+
+h1 {
+text-align: center;
+margin-bottom: 8px;
+font-size: 32px;
+}
+
+.subtitle {
+text-align: center;
+color: #9ca3af;
+margin-bottom: 30px;
+}
+
+.card {
+background: #151b29;
+border: 1px solid #273044;
+border-radius: 16px;
+padding: 22px;
+margin-bottom: 20px;
+}
+
+.upload-box {
+border: 2px dashed #3b465d;
+border-radius: 14px;
+padding: 30px;
+text-align: center;
+cursor: pointer;
+}
+
+.upload-box:hover {
+border-color: #6b7280;
+}
+
+input[type="file"] {
+display: none;
+}
+
+.upload-text {
+color: #cbd5e1;
+font-size: 16px;
+}
+
+#preview {
+display: none;
+max-width: 100%;
+max-height: 450px;
+margin: 20px auto 0;
+border-radius: 12px;
+}
+
+button {
+width: 100%;
+border: none;
+border-radius: 12px;
+padding: 15px;
+font-size: 17px;
+font-weight: bold;
+cursor: pointer;
+margin-top: 18px;
+background: #2563eb;
+color: white;
+}
+
+button:hover {
+background: #1d4ed8;
+}
+
+button:disabled {
+background: #374151;
+cursor: not-allowed;
+}
+
+#status {
+text-align: center;
+color: #9ca3af;
+margin-top: 15px;
+min-height: 20px;
+}
+
+#result {
+display: none;
+text-align: center;
+}
+
+.signal {
+font-size: 55px;
+font-weight: bold;
+margin: 10px 0;
+}
+
+.call {
+color: #22c55e;
+}
+
+.put {
+color: #ef4444;
+}
+
+.confidence {
+font-size: 22px;
+color: #e5e7eb;
+}
+
+.history-title {
+font-size: 21px;
+margin-bottom: 15px;
+}
+
+.history-item {
+display: flex;
+align-items: center;
+gap: 15px;
+padding: 12px;
+border-bottom: 1px solid #273044;
+}
+
+.history-item:last-child {
+border-bottom: none;
+}
+
+.history-image {
+width: 70px;
+height: 55px;
+object-fit: cover;
+border-radius: 8px;
+}
+
+.history-signal {
+font-weight: bold;
+min-width: 60px;
+}
+
+.history-info {
+color: #cbd5e1;
+font-size: 14px;
+}
+
+.small {
+color: #9ca3af;
+font-size: 13px;
+margin-top: 20px;
+line-height: 1.5;
+}
+
+.clear-btn {
+background: #374151;
+margin-top: 10px;
+}
+
+.clear-btn:hover {
+background: #4b5563;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🤖 Trading AI Analyzer</h1>
+
+<div class="subtitle">
+Upload a chart screenshot and let the AI analyze it
+</div>
+
+<div class="card">
+
+<label class="upload-box" for="imageInput">
+<div class="upload-text">
+📷 Click here to upload chart screenshot
+</div>
+</label>
+
+<input
+type="file"
+id="imageInput"
+accept="image/*"
+>
+
+<img id="preview" alt="Chart Preview">
+
+<button id="analyzeBtn" disabled>
+Analyze Chart
+</button>
+
+<div id="status"></div>
+
+</div>
+
+<div class="card" id="result">
+
+<div>AI SIGNAL</div>
+
+<div id="signal" class="signal">
+--
+</div>
+
+<div class="confidence">
+Confidence: <strong id="confidence">--</strong>
+</div>
+
+<div class="small">
+This confidence represents the model's classification confidence,
+not a guaranteed trade probability.
+</div>
+
+</div>
+
+<div class="card">
+
+<div class="history-title">
+📊 Analysis History
+</div>
+
+<div id="history">
+No analyses yet.
+</div>
+
+<button class="clear-btn" id="clearHistory">
+Clear History
+</button>
+
+</div>
+
+</div>
+
+<script>
+
+let model = null;
+let selectedImage = null;
+
+const imageInput = document.getElementById("imageInput");
+const preview = document.getElementById("preview");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const statusText = document.getElementById("status");
+
+const resultBox = document.getElementById("result");
+const signalText = document.getElementById("signal");
+const confidenceText = document.getElementById("confidence");
+
+const historyBox = document.getElementById("history");
+const clearHistoryBtn = document.getElementById("clearHistory");
+
+
+/* =========================
+LOAD MODEL
+========================= */
+
+async function loadModel() {
+
+try {
+
+statusText.textContent = "Loading AI model...";
+
+model = await tf.loadGraphModel(
+"trading_tfjs_model/model.json"
+);
+
+statusText.textContent = "AI model loaded successfully ✅";
+
+console.log("Model loaded:", model);
+
+} catch (error) {
+
+console.error(error);
+
+statusText.textContent =
+"❌ Could not load AI model. Check the model folder.";
+
+}
+
+}
+
+
+/* =========================
+IMAGE SELECTION
+========================= */
+
+imageInput.addEventListener("change", function(event) {
+
+const file = event.target.files[0];
+
+if (!file) {
+return;
+}
+
+selectedImage = file;
+
+const reader = new FileReader();
+
+reader.onload = function(e) {
+
+preview.src = e.target.result;
+preview.style.display = "block";
+
+analyzeBtn.disabled = false;
+
+resultBox.style.display = "none";
+
+statusText.textContent =
+"Screenshot ready for analysis.";
+
+};
+
+reader.readAsDataURL(file);
+
+});
+
+
+/* =========================
+ANALYZE IMAGE
+========================= */
+
+analyzeBtn.addEventListener("click", async function() {
+
+if (!model) {
+
+statusText.textContent =
+"AI model is still loading. Please wait.";
+
+return;
+
+}
+
+if (!selectedImage) {
+return;
+}
+
+try {
+
+analyzeBtn.disabled = true;
+
+statusText.textContent =
+"Analyzing chart...";
+
+const image = new Image();
+
+image.src = URL.createObjectURL(selectedImage);
+
+await new Promise((resolve, reject) => {
+
+image.onload = resolve;
+image.onerror = reject;
+
+});
+
+
+/*
+* Convert image to tensor.
+*
+* Model expects:
+* 224 x 224 x 3
+*/
+
+const tensor = tf.tidy(() => {
+
+let t = tf.browser.fromPixels(image);
+
+t = tf.image.resizeBilinear(
+t,
+[224, 224]
+);
+
+t = t.toFloat();
+
+t = t.expandDims(0);
+
+/*
+* Same normalization used during training:
+*
+* Rescaling(1./127.5, offset=-1)
+*/
+
+t = t.div(127.5).sub(1);
+
+return t;
+
+});
+
+
+/* Run model */
+
+const prediction = model.execute(tensor);
+
+const data = await prediction.data();
+
+const probabilityPUT = data[0];
+
+/*
+* Model labels:
+*
+* CALL = 0
+* PUT = 1
+*/
+
+let signal;
+let confidence;
+
+if (probabilityPUT >= 0.5) {
+
+signal = "PUT";
+confidence = probabilityPUT;
+
+} else {
+
+signal = "CALL";
+confidence = 1 - probabilityPUT;
+
+}
+
+
+/* Display result */
+
+resultBox.style.display = "block";
+
+signalText.textContent = signal;
+
+signalText.className =
+"signal " + (signal === "CALL" ? "call" : "put");
+
+confidenceText.textContent =
+(confidence * 100).toFixed(2) + "%";
+
+
+statusText.textContent =
+"Analysis complete ✅";
+
+
+/* Save history */
+
+saveHistory(
+signal,
+confidence,
+preview.src
+);
+
+
+tensor.dispose();
+
+if (prediction.dispose) {
+prediction.dispose();
+}
+
+URL.revokeObjectURL(image.src);
+
+analyzeBtn.disabled = false;
+
+} catch (error) {
+
+console.error(error);
+
+statusText.textContent =
+"❌ Analysis failed. Check the browser console.";
+
+analyzeBtn.disabled = false;
+
+}
+
+});
+
+
+/* =========================
+HISTORY
+========================= */
+
+function saveHistory(signal, confidence, imageData) {
+
+const history =
+JSON.parse(
+localStorage.getItem("tradingAIHistory") || "[]"
+);
+
+history.unshift({
+
+signal: signal,
+
+confidence: confidence,
+
+image: imageData,
+
+time: new Date().toLocaleString()
+
+});
+
+
+/* Keep last 20 analyses */
+
+if (history.length > 20) {
+history.splice(20);
+}
+
+
+localStorage.setItem(
+"tradingAIHistory",
+JSON.stringify(history)
+);
+
+
+displayHistory();
+
+}
+
+
+function displayHistory() {
+
+const history =
+JSON.parse(
+localStorage.getItem("tradingAIHistory") || "[]"
+);
+
+
+if (history.length === 0) {
+
+historyBox.textContent =
+"No analyses yet.";
+
+return;
+
+}
+
+
+historyBox.innerHTML = "";
+
+
+history.forEach(item => {
+
+const row =
+document.createElement("div");
+
+row.className =
+"history-item";
+
+
+const img =
+document.createElement("img");
+
+img.className =
+"history-image";
+
+img.src =
+item.image;
+
+
+const signal =
+document.createElement("div");
+
+signal.className =
+"history-signal " +
+(item.signal === "CALL" ? "call" : "put");
+
+signal.textContent =
+item.signal;
+
+
+const info =
+document.createElement("div");
+
+info.className =
+"history-info";
+
+info.innerHTML =
+"Confidence: " +
+(item.confidence * 100).toFixed(2) +
+"%<br>" +
+item.time;
+
+
+row.appendChild(img);
+
+row.appendChild(signal);
+
+row.appendChild(info);
+
+historyBox.appendChild(row);
+
+});
+
+}
+
+
+/* =========================
+CLEAR HISTORY
+========================= */
+
+clearHistoryBtn.addEventListener("click", function() {
+
+if (
+confirm(
+"Are you sure you want to clear analysis history?"
+)
+) {
+
+localStorage.removeItem(
+"tradingAIHistory"
+);
+
+displayHistory();
+
+}
+
+});
+
+
+/* =========================
+START
+========================= */
+
+displayHistory();
+
+loadModel();
+
+</script>
+
+</body>
+</html>
